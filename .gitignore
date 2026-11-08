@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Data, features and run outputs are never versioned
+data/
+cache/
+results/
+outputs/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/

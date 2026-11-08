@@ -1,0 +1,31 @@
+# Full factorial grid from the proposal (docs/proposal-pt.md, section 4.2).
+# 4 label sets x 4 encoders x 4 reducers x 4 clusterers x 5 seeds = 1280 runs.
+
+datasets: [cifar10, cifar100_coarse, cifar100_fine, stl10]
+
+encoders: [pixels, resnet50, dinov2_vitb14, clip_vitb16]
+
+reducers:
+  - none
+  - {name: pca, n_components: 50}
+  - {name: umap, n_components: 10, n_neighbors: 15}
+  - {name: umap, n_components: 10, n_neighbors: 50}
+
+clusterers:
+  - kmeans
+  - gmm
+  - ward
+  - {name: hdbscan, min_cluster_size: 50}
+
+seeds: [0, 1, 2, 3, 4]
+
+normalize: l2          # applied to every representation before reduction
+max_samples: null      # use the full test split
+internal_metrics_sample: null
+device: cuda
+batch_size: 256
+
+paths:
+  data_dir: data
+  cache_dir: cache
+  results_dir: results/grid

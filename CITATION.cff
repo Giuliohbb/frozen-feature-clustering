@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite it as below."
+title: "Frozen-Feature Clustering: representation, dimensionality reduction or algorithm?"
+authors:
+  - family-names: Basso
+    given-names: Giulio Henrique Borges
+    affiliation: Universidade Federal de Goiás
+version: 0.1.0
+date-released: 2026-11-08
+license: MIT
+repository-code: "https://github.com/Giuliohbb/frozen-feature-clustering"

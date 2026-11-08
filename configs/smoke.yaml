@@ -1,0 +1,27 @@
+# Fast end-to-end check of the whole pipeline (a few minutes on a GPU).
+
+datasets: [cifar10]
+
+encoders: [pixels, dinov2_vitb14]
+
+reducers:
+  - none
+  - {name: pca, n_components: 50}
+  - {name: umap, n_components: 10, n_neighbors: 15}
+
+clusterers:
+  - kmeans
+  - ward
+  - {name: hdbscan, min_cluster_size: 50}
+
+seeds: [0]
+
+normalize: l2
+max_samples: 3000
+device: cuda
+batch_size: 256
+
+paths:
+  data_dir: data
+  cache_dir: cache
+  results_dir: results/smoke

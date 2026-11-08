@@ -35,3 +35,9 @@ def test_run_and_report_commands(tmp_path: Path) -> None:
     result = runner.invoke(app, ["report", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
     assert (tmp_path / "res" / "runs.parquet").exists()
+
+    # --results-dir overrides the YAML path (used by the cluster job scripts)
+    other = tmp_path / "elsewhere"
+    result = runner.invoke(app, ["run", "--config", str(config_path), "--results-dir", str(other)])
+    assert result.exit_code == 0, result.output
+    assert (other / "runs.jsonl").exists()

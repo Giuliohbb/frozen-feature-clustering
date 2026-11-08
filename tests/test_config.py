@@ -40,3 +40,20 @@ def test_unknown_dataset_is_rejected() -> None:
             clusterers=[MethodSpec("kmeans")],
             seeds=[0],
         )
+
+
+def test_path_overrides_and_home_expansion(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("FFC_TEST_ROOT", "/scratch/ffc")
+    cfg = load_config(
+        CONFIGS / "smoke.yaml",
+        {"cache_dir": "~/dados/cache", "results_dir": "$FFC_TEST_ROOT/smoke", "data_dir": None},
+    )
+    assert cfg.paths.cache_dir == tmp_path / "dados" / "cache"
+    assert cfg.paths.results_dir == Path("/scratch/ffc/smoke")
+    assert cfg.paths.data_dir == Path("data")  # None means "keep the YAML value"
+
+
+def test_unknown_path_override_is_rejected() -> None:
+    with pytest.raises(ValueError, match="Unknown path keys"):
+        load_config(CONFIGS / "smoke.yaml", {"output_dir": "x"})

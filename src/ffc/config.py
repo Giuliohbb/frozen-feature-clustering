@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -109,10 +110,24 @@ class ExperimentConfig:
         )
 
 
-def load_config(path: str | Path) -> ExperimentConfig:
+def load_config(
+    path: str | Path, path_overrides: Mapping[str, str | Path | None] | None = None
+) -> ExperimentConfig:
+    """Load a YAML config. ``path_overrides`` (e.g. from CLI flags) replace entries of ``paths``.
+
+    Paths support ``~`` and environment variables, so the same config works locally and on a
+    cluster where data and results live elsewhere.
+    """
     with open(path) as f:
         raw: dict[str, Any] = yaml.safe_load(f)
-    paths = Paths(**{k: Path(v) for k, v in raw.pop("paths", {}).items()})
+    path_values: dict[str, Any] = dict(raw.pop("paths", {}))
+    path_values.update({k: v for k, v in (path_overrides or {}).items() if v is not None})
+    unknown = set(path_values) - set(Paths.__dataclass_fields__)
+    if unknown:
+        raise ValueError(f"Unknown path keys {sorted(unknown)}")
+    paths = Paths(
+        **{k: Path(os.path.expandvars(str(v))).expanduser() for k, v in path_values.items()}
+    )
     return ExperimentConfig(
         datasets=list(raw.pop("datasets")),
         encoders=list(raw.pop("encoders")),

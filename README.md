@@ -57,6 +57,8 @@ make run         # run the full grid on cached features (resumable)
 uv run ffc report -c configs/grid.yaml   # export runs.parquet and print a summary
 ```
 
+Running on a Slurm cluster? See [`cluster/lab150/README.md`](cluster/lab150/README.md) for job scripts that run inside a PyTorch container with an isolated venv.
+
 ## How it works
 
 ```
@@ -76,6 +78,7 @@ images ──► encoder (frozen) ──► cache/<source>/features_<encoder>.np
 ## Repository layout
 
 ```
+cluster/lab150/     Slurm job scripts for the UFG/CEIA LAB150 cluster
 configs/            experiment grids (full and smoke)
 docs/               proposal and, later, the paper-style write-up
 src/ffc/

@@ -25,7 +25,7 @@ git clone https://github.com/Giuliohbb/frozen-feature-clustering.git ~/frozen-fe
 cd ~/frozen-feature-clustering
 ```
 
-The repo **must** live at `~/frozen-feature-clustering` (the job scripts `cd` there).
+The repo **must** live at `~/frozen-feature-clustering`: every job starts with `cd "$HOME/frozen-feature-clustering"`.
 
 ### 1. Check the environment (~1 min, GPU)
 

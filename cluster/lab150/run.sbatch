@@ -4,8 +4,8 @@
 #SBATCH --account=lab150-alunos
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=32G
 #SBATCH --time=12:00:00
 #SBATCH --output=/home/%u/runs/%x-%j.out
 #SBATCH --error=/home/%u/runs/%x-%j.err

@@ -23,6 +23,9 @@ def _setup_logging(verbose: bool) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+    # Hugging Face downloads log every HTTP request at INFO; keep the job logs readable.
+    for noisy in ("httpx", "httpx2", "httpcore", "huggingface_hub"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def _load(

@@ -11,9 +11,14 @@ python --version
 # The image's Python (Ubuntu 24.04) has no ensurepip, so `python -m venv` cannot put pip inside
 # the venv. We create it --without-pip: the image's own pip is visible through
 # --system-site-packages and, run by the venv's interpreter, installs into the venv.
-if [[ ! -f "$FFC_VENV/pyvenv.cfg" ]]; then
+# A failed earlier attempt can leave a half-built venv (no activate script), so only reuse a venv
+# that is complete and runs; otherwise rebuild it. Only $FFC_VENV (in your home) is touched.
+if [[ -f "$FFC_VENV/pyvenv.cfg" && -f "$FFC_VENV/bin/activate" ]] \
+   && "$FFC_VENV/bin/python" -c "import sys" 2> /dev/null; then
+  echo "reusing venv at $FFC_VENV"
+else
   mkdir -p "$(dirname "$FFC_VENV")"
-  python -m venv --system-site-packages --without-pip "$FFC_VENV"
+  python -m venv --clear --system-site-packages --without-pip "$FFC_VENV"
   echo "created venv at $FFC_VENV"
 fi
 activate_venv

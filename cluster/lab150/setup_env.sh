@@ -8,13 +8,22 @@ set -euo pipefail
 source cluster/lab150/env.sh
 
 python --version
-if [[ ! -x "$FFC_VENV/bin/python" ]]; then
+# The image's Python (Ubuntu 24.04) has no ensurepip, so `python -m venv` cannot put pip inside
+# the venv. We create it --without-pip: the image's own pip is visible through
+# --system-site-packages and, run by the venv's interpreter, installs into the venv.
+if [[ ! -f "$FFC_VENV/pyvenv.cfg" ]]; then
   mkdir -p "$(dirname "$FFC_VENV")"
-  python -m venv --system-site-packages "$FFC_VENV"
+  python -m venv --system-site-packages --without-pip "$FFC_VENV"
   echo "created venv at $FFC_VENV"
 fi
 activate_venv
-python -m pip install --quiet --upgrade pip
+if ! python -m pip --version > /dev/null 2>&1; then
+  echo "no pip in the image; bootstrapping pip into the venv"
+  curl -fsSL https://bootstrap.pypa.io/get-pip.py -o "$FFC_VENV/get-pip.py"
+  python "$FFC_VENV/get-pip.py" --quiet
+fi
+python -m pip --version
+python -c "import sys; assert sys.prefix != sys.base_prefix, 'not inside the venv'; print('installing into', sys.prefix)"
 
 CONSTRAINTS="$FFC_VENV/image-constraints.txt"
 python - > "$CONSTRAINTS" <<'PY'

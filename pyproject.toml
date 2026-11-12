@@ -23,6 +23,7 @@ features = [
     "torch>=2.2",
     "torchvision>=0.17",
     "transformers>=4.40",
+    "huggingface-hub>=0.23",
     "pillow>=10",
     "tqdm>=4.66",
 ]
@@ -35,6 +36,7 @@ dev = [
     "mypy>=1.10",
     "pre-commit>=3.7",
     "types-PyYAML",
+    "pillow>=10",  # image decoding tests (STL-10 parquet)
 ]
 
 [project.scripts]

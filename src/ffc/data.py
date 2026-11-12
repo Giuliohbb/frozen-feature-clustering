@@ -8,6 +8,7 @@ agglomerative clustering. Labels are used only for evaluation.
 
 from __future__ import annotations
 
+import io
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,40 @@ DATASETS: dict[str, DatasetSpec] = {
 
 SOURCES: tuple[str, ...] = ("cifar10", "cifar100", "stl10")
 
+# STL-10's official host (ai.stanford.edu) is often unreachable, including from the LAB150 cluster.
+# We read the same official test split (8,000 images, same class order) from a Hugging Face
+# mirror, pinned to a commit for reproducibility.
+STL10_HF_REPO = "tanganke/stl10"
+STL10_HF_FILE = "data/test-00000-of-00001.parquet"
+STL10_HF_REVISION = "49ae7f94508f7feae62baf836db284306eab0b0f"
+
+
+def read_image_parquet(
+    path: str | Path, image_col: str = "image", label_col: str = "label"
+) -> tuple[np.ndarray, np.ndarray]:
+    """Decode a Hugging Face image parquet (image = {bytes, path}) into NHWC uint8 + labels."""
+    import pandas as pd
+    from PIL import Image
+
+    df = pd.read_parquet(path, columns=[image_col, label_col])
+    images = np.stack(
+        [np.asarray(Image.open(io.BytesIO(cell["bytes"])).convert("RGB")) for cell in df[image_col]]
+    )
+    return images.astype(np.uint8), df[label_col].to_numpy(dtype=np.int64)
+
+
+def _download_stl10_test() -> Path:
+    from huggingface_hub import hf_hub_download  # cache location follows HF_HOME
+
+    return Path(
+        hf_hub_download(
+            repo_id=STL10_HF_REPO,
+            filename=STL10_HF_FILE,
+            repo_type="dataset",
+            revision=STL10_HF_REVISION,
+        )
+    )
+
 
 def load_source(source: str, data_dir: Path) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Download (if needed) and load the test split of an image source.
@@ -40,10 +75,14 @@ def load_source(source: str, data_dir: Path) -> tuple[np.ndarray, dict[str, np.n
         images: uint8 array of shape (N, H, W, 3).
         labels: mapping from label key ("fine", "coarse") to int64 arrays of shape (N,).
     """
-    from torchvision import datasets as tvd  # heavy, optional dependency
-
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
+
+    if source == "stl10":
+        stl_images, stl_labels = read_image_parquet(_download_stl10_test())
+        return stl_images, {"fine": stl_labels}
+
+    from torchvision import datasets as tvd  # heavy, optional dependency
 
     if source == "cifar10":
         ds10 = tvd.CIFAR10(root=data_dir, train=False, download=True)
@@ -59,10 +98,5 @@ def load_source(source: str, data_dir: Path) -> tuple[np.ndarray, dict[str, np.n
             "coarse": np.asarray(raw["coarse_labels"], dtype=np.int64),
         }
         return np.asarray(ds100.data), labels
-
-    if source == "stl10":
-        stl = tvd.STL10(root=data_dir, split="test", download=True)
-        images = np.transpose(np.asarray(stl.data), (0, 2, 3, 1))  # NCHW -> NHWC
-        return images, {"fine": np.asarray(stl.labels, dtype=np.int64)}
 
     raise ValueError(f"Unknown source {source!r}; available: {SOURCES}")

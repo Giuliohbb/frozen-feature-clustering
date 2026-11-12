@@ -46,6 +46,17 @@ cat ~/runs/ffc-setup-*.out            # ends with "setup OK"
 
 Run it again after changing dependencies in `pyproject.toml`. It is idempotent.
 
+### 3. Pre-download slow datasets (optional, access machine)
+
+Jobs download what they need, but the CIFAR host is slow (~150 kB/s). Downloading on the access machine is allowed by the lab manual and does not use your job slot; torchvision then finds the archive and skips the download. `nohup` keeps it running if SSH drops:
+
+```bash
+mkdir -p ~/dados/ffc/data && cd ~/dados/ffc/data
+nohup wget -c -q https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz > ~/runs/dl-cifar100.log 2>&1 &
+```
+
+STL-10 is read from a pinned Hugging Face mirror (its official host is unreachable from the lab), which is fast from inside jobs.
+
 ## Experiments
 
 **One job at a time.** The lab allows one job per user (a GPU Jupyter kernel counts). Submit the next step only after `squeue -u $USER` is empty, and check its log first.

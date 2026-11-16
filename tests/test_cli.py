@@ -40,4 +40,4 @@ def test_run_and_report_commands(tmp_path: Path) -> None:
     other = tmp_path / "elsewhere"
     result = runner.invoke(app, ["run", "--config", str(config_path), "--results-dir", str(other)])
     assert result.exit_code == 0, result.output
-    assert (other / "runs.jsonl").exists()
+    assert list(other.glob("runs-*.jsonl"))

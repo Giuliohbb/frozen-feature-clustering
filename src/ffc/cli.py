@@ -14,7 +14,7 @@ app = typer.Typer(add_completion=False, no_args_is_help=True, help=__doc__)
 ConfigOpt = typer.Option(..., "--config", "-c", exists=True, help="Path to experiment YAML")
 DataDirOpt = typer.Option(None, help="Override paths.data_dir (raw datasets)")
 CacheDirOpt = typer.Option(None, help="Override paths.cache_dir (features and labels)")
-ResultsDirOpt = typer.Option(None, help="Override paths.results_dir (runs.jsonl)")
+ResultsDirOpt = typer.Option(None, help="Override paths.results_dir (result files)")
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -79,17 +79,22 @@ def report(
     results_dir: Path | None = ResultsDirOpt,
     metric: str = typer.Option("ari", help="Metric to summarize"),
 ) -> None:
-    """Export results to Parquet and print a summary table (mean over seeds)."""
-    from ffc.runner import load_results, summarize
+    """Check grid integrity, export results to Parquet and print a summary table."""
+    from ffc.results import integrity_report, load_results
+    from ffc.runner import summarize
 
     cfg = _load(config, results_dir=results_dir)
+    rep = integrity_report(cfg.paths.results_dir, (r.run_id for r in cfg.iter_runs()))
+    typer.echo(
+        f"Integrity: {rep['n_unique']}/{rep['n_expected']} runs, {rep['n_missing']} missing, "
+        f"{rep['n_errors']} errors, {rep['n_duplicate_records']} duplicate records, "
+        f"{rep['n_corrupt_lines']} corrupt lines, {rep['n_files']} files"
+    )
     df = load_results(cfg.paths.results_dir)
     out = Path(cfg.paths.results_dir) / "runs.parquet"
     df.to_parquet(out, index=False)
-    n_err = int((df["status"] == "error").sum())
-    typer.echo(f"{len(df)} runs ({n_err} with status=error) -> {out}\n")
-    with_reducer = summarize(df, metric=metric, by=("encoder", "reducer"))
-    typer.echo(with_reducer.to_string())
+    typer.echo(f"{len(df)} runs -> {out}\n")
+    typer.echo(summarize(df, metric=metric, by=("encoder", "reducer")).to_string())
 
 
 if __name__ == "__main__":

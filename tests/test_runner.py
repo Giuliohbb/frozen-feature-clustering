@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 from sklearn.datasets import make_blobs
 
 from ffc.config import ExperimentConfig, MethodSpec, Paths
@@ -50,3 +51,52 @@ def test_run_grid_end_to_end_and_resume(tmp_path: Path) -> None:
     mean_ari = df.groupby("encoder")["ari"].mean()
     assert mean_ari["good"] > 0.9
     assert mean_ari["noise"] < 0.1
+
+
+def test_failing_cell_is_recorded_and_grid_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import ffc.runner as runner_mod
+    from ffc.cluster import cluster as real_cluster
+
+    _make_cache(tmp_path / "cache")
+    cfg = _config(tmp_path, seeds=[0])
+    fail = {"on": True}
+
+    def maybe_failing(X, spec, n_clusters, seed):  # type: ignore[no-untyped-def]
+        if spec.name == "ward" and fail["on"]:
+            raise ValueError("boom")
+        return real_cluster(X, spec, n_clusters, seed)
+
+    monkeypatch.setattr(runner_mod, "cluster", maybe_failing)
+    assert run_grid(cfg) == 8  # every cell is attempted, none aborts the job
+
+    df = load_results(cfg.paths.results_dir)
+    errors = df[df["status"] == "error"]
+    assert len(errors) == 4 and set(errors["clusterer"]) == {"ward"}
+    assert errors["error"].str.contains("ValueError: boom").all()
+    assert errors["ari"].isna().all()
+    assert (df[df["status"] == "ok"]["ari"].notna()).all()
+
+    assert run_grid(cfg) == 0  # errors count as done by default...
+    fail["on"] = False
+    assert run_grid(cfg, retry_errors=True) == 4  # ...and are re-run on request
+
+    df = load_results(cfg.paths.results_dir)
+    assert len(df) == 8  # retried runs replace their error records
+    assert (df["status"] == "ok").all()
+
+
+def test_load_results_accepts_records_without_status(tmp_path: Path) -> None:
+    """Results written before the status field existed (the first 901 grid runs)."""
+    import json
+
+    (tmp_path / "runs.jsonl").write_text(
+        json.dumps({"run_id": "a", "ari": 0.5})
+        + "\n"
+        + json.dumps({"run_id": "b", "ari": 0.1})
+        + "\n"
+    )
+    df = load_results(tmp_path)
+    assert list(df["status"]) == ["ok", "ok"]
+    assert read_done(tmp_path, include_errors=False) == {"a", "b"}

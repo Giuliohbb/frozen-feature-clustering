@@ -58,14 +58,19 @@ def run(
     config: Path = ConfigOpt,
     cache_dir: Path | None = CacheDirOpt,
     results_dir: Path | None = ResultsDirOpt,
+    retry_errors: bool = typer.Option(False, help="Re-run cells recorded with status=error"),
     verbose: bool = False,
 ) -> None:
     """Run all pending cells of the grid on cached features (resumable)."""
-    from ffc.runner import run_grid
+    from ffc.runner import read_done, run_grid
 
     _setup_logging(verbose)
-    n = run_grid(_load(config, cache_dir=cache_dir, results_dir=results_dir))
-    typer.echo(f"Executed {n} runs.")
+    cfg = _load(config, cache_dir=cache_dir, results_dir=results_dir)
+    n = run_grid(cfg, retry_errors=retry_errors)
+    n_errors = len(read_done(cfg.paths.results_dir)) - len(
+        read_done(cfg.paths.results_dir, include_errors=False)
+    )
+    typer.echo(f"Executed {n} runs. Cells with status=error: {n_errors}.")
 
 
 @app.command()
@@ -81,7 +86,8 @@ def report(
     df = load_results(cfg.paths.results_dir)
     out = Path(cfg.paths.results_dir) / "runs.parquet"
     df.to_parquet(out, index=False)
-    typer.echo(f"{len(df)} runs -> {out}\n")
+    n_err = int((df["status"] == "error").sum())
+    typer.echo(f"{len(df)} runs ({n_err} with status=error) -> {out}\n")
     with_reducer = summarize(df, metric=metric, by=("encoder", "reducer"))
     typer.echo(with_reducer.to_string())
 

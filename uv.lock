@@ -2425,7 +2425,7 @@ wheels = [
 
 [[package]]
 name = "umap-learn"
-version = "0.5.12"
+version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numba" },
@@ -2437,9 +2437,9 @@ dependencies = [
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/02/ee/af4171241117f85c74b5ca6448ea1033cc28d599c13651d67289bacd4083/umap_learn-0.5.12.tar.gz", hash = "sha256:6aff02ecac5f2aad9f3c65ee518d7ae93e1a985ae38721fdcffceee4232c33c7", size = 96672, upload-time = "2026-04-08T20:03:54.012Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/61/01c1de38a5e3b19e59afd845ca33a83bf8fe0282f250ef976b06ad153f4c/umap_learn-0.6.0.tar.gz", hash = "sha256:2f56945fdf8470efc12dc79c91d8a091a33d1e03ea3251d76e019da8e3617c38", size = 141068, upload-time = "2026-11-10T13:28:28.981Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1b/98/f63318ccbe75c810011fe9233884c5d348d94d90005de1b79e5f93bef9c0/umap_learn-0.5.12-py3-none-any.whl", hash = "sha256:f2a85d2a2adcb52b541bed9b27a23ca169b56bb1b23283abeebfb8dfb8a42fe5", size = 91849, upload-time = "2026-04-08T20:03:52.561Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/8b/1f0f17e6515c70940974e5ca962fffdc2ea9da0093344611f9841145e6cb/umap_learn-0.6.0-py3-none-any.whl", hash = "sha256:31f0f6ab31e95463a33404b5228921d24f4314f1607c9db405446ab0fad23663", size = 136975, upload-time = "2026-11-10T13:28:27.411Z" },
 ]
 
 [[package]]

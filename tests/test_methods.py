@@ -24,15 +24,15 @@ def test_clusterers_recover_separated_blobs(
     spec: MethodSpec, blobs: tuple[np.ndarray, np.ndarray]
 ) -> None:
     X, y = blobs
-    labels = cluster(X, spec, n_clusters=3, seed=0)
+    labels = cluster(X, spec, n_clusters=3, seed=0).labels
     assert labels.shape == y.shape
     assert adjusted_rand_score(y, labels) > 0.9
 
 
 def test_kmeans_is_deterministic_given_seed(blobs: tuple[np.ndarray, np.ndarray]) -> None:
     X, _ = blobs
-    a = cluster(X, MethodSpec("kmeans"), 3, seed=1)
-    b = cluster(X, MethodSpec("kmeans"), 3, seed=1)
+    a = cluster(X, MethodSpec("kmeans"), 3, seed=1).labels
+    b = cluster(X, MethodSpec("kmeans"), 3, seed=1).labels
     np.testing.assert_array_equal(a, b)
 
 
@@ -75,3 +75,43 @@ def test_encode_pixels_shape_and_range() -> None:
     assert X.shape == (4, 32 * 32 * 3)
     assert X.dtype == np.float32
     assert X.min() >= 0.0 and X.max() <= 1.0
+
+
+def test_gmm_escalates_reg_covar_when_fit_collapses(
+    monkeypatch: pytest.MonkeyPatch, blobs: tuple[np.ndarray, np.ndarray]
+) -> None:
+    """Reproduce the failure seen on the cluster: sklearn rejects small reg_covar values."""
+    from sklearn.mixture import GaussianMixture
+
+    original = GaussianMixture.fit_predict
+    tried: list[float] = []
+
+    def flaky_fit_predict(self: GaussianMixture, X: np.ndarray, y: object = None) -> np.ndarray:
+        tried.append(self.reg_covar)
+        assert X.dtype == np.float64  # fitted in double precision
+        if self.reg_covar < 1e-4:
+            raise ValueError(
+                "Fitting the mixture model failed because some components have "
+                "ill-defined empirical covariance (for instance ...)"
+            )
+        return original(self, X, y)
+
+    monkeypatch.setattr(GaussianMixture, "fit_predict", flaky_fit_predict)
+    X, y = blobs
+    result = cluster(X, MethodSpec("gmm"), 3, seed=0)
+    assert tried == [1e-6, 1e-5, 1e-4]
+    assert result.info == {"gmm_reg_covar": 1e-4}
+    assert adjusted_rand_score(y, result.labels) > 0.9
+
+
+def test_gmm_reraises_unrelated_errors(
+    monkeypatch: pytest.MonkeyPatch, blobs: tuple[np.ndarray, np.ndarray]
+) -> None:
+    from sklearn.mixture import GaussianMixture
+
+    def broken(self: GaussianMixture, X: np.ndarray, y: object = None) -> np.ndarray:
+        raise ValueError("something else")
+
+    monkeypatch.setattr(GaussianMixture, "fit_predict", broken)
+    with pytest.raises(ValueError, match="something else"):
+        cluster(blobs[0], MethodSpec("gmm"), 3, seed=0)

@@ -57,11 +57,42 @@ METRIC_KEYS = (
 
 
 def _read_records(results_dir: str | Path) -> list[dict[str, Any]]:
+    """Parse runs.jsonl, tolerating lines damaged by an interrupted write.
+
+    On a network filesystem, a job killed mid-write can leave a torn line or NUL padding
+    (sometimes followed by the next record on the same line). NULs are stripped so such a
+    record is recovered; anything still unparsable is skipped with a warning, which simply
+    makes that run pending again.
+    """
     path = Path(results_dir) / RUNS_FILE
     if not path.exists():
         return []
-    with open(path) as f:
-        return [json.loads(line) for line in f if line.strip()]
+    records: list[dict[str, Any]] = []
+    with open(path, encoding="utf-8", errors="replace") as f:
+        for lineno, raw in enumerate(f, start=1):
+            line = raw.replace("\x00", "").strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                log.warning("%s:%d is not valid JSON, skipping: %r", path, lineno, line[:80])
+                continue
+            if isinstance(record, dict) and "run_id" in record:
+                records.append(record)
+            else:
+                log.warning("%s:%d has no run_id, skipping", path, lineno)
+    return records
+
+
+def _ensure_trailing_newline(path: Path) -> None:
+    """If a previous job died mid-line, start appending on a fresh line."""
+    if not path.exists() or path.stat().st_size == 0:
+        return
+    with open(path, "rb+") as f:
+        f.seek(-1, 2)
+        if f.read(1) != b"\n":
+            f.write(b"\n")
 
 
 def read_done(results_dir: str | Path, include_errors: bool = True) -> set[str]:
@@ -107,6 +138,7 @@ def run_grid(cfg: ExperimentConfig, retry_errors: bool = False) -> int:
 
     env = _environment()
     n_executed = 0
+    _ensure_trailing_newline(results_dir / RUNS_FILE)
     with open(results_dir / RUNS_FILE, "a") as out:
         for source in cfg.sources:
             datasets = [d for d in cfg.datasets if DATASETS[d].source == source]

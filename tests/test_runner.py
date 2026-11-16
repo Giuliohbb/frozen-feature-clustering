@@ -100,3 +100,28 @@ def test_load_results_accepts_records_without_status(tmp_path: Path) -> None:
     df = load_results(tmp_path)
     assert list(df["status"]) == ["ok", "ok"]
     assert read_done(tmp_path, include_errors=False) == {"a", "b"}
+
+
+def test_corrupted_lines_are_skipped_or_recovered(tmp_path: Path) -> None:
+    """runs.jsonl damaged by a job killed mid-write (seen on the LAB150 NFS home)."""
+    import json
+
+    good = json.dumps({"run_id": "a", "ari": 0.5})
+    nul_prefixed = "\x00" * 64 + json.dumps({"run_id": "b", "ari": 0.2})
+    torn = '{"run_id": "c", "ari": 0.'
+    (tmp_path / "runs.jsonl").write_text(
+        "\n".join([good, "\x00\x00\x00", nul_prefixed, torn, "not json", "[1, 2]"]) + "\n"
+    )
+    assert read_done(tmp_path) == {"a", "b"}  # "c" is torn, so it will simply run again
+    assert set(load_results(tmp_path)["run_id"]) == {"a", "b"}
+
+
+def test_grid_resumes_after_a_torn_last_line(tmp_path: Path) -> None:
+    _make_cache(tmp_path / "cache")
+    cfg = _config(tmp_path, seeds=[0])
+    assert run_grid(cfg) == 8
+    runs = cfg.paths.results_dir / "runs.jsonl"
+    lines = runs.read_text().splitlines()
+    runs.write_text("\n".join(lines[:-1]) + "\n" + lines[-1][:30])  # tear the last record
+    assert run_grid(cfg) == 1  # only the torn cell is re-run
+    assert len(load_results(cfg.paths.results_dir)) == 8

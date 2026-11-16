@@ -17,6 +17,7 @@ htmlcov/
 data/
 cache/
 results/
+reports/
 outputs/
 
 # Notebooks

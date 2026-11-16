@@ -72,7 +72,14 @@ sbatch --time=03:00:00 cluster/lab150/extract.sbatch configs/grid.yaml
 sbatch cluster/lab150/run.sbatch configs/grid.yaml
 ```
 
-Results land in `~/runs/ffc/<config name>/runs.jsonl` and `runs.parquet`.
+Results land in `~/runs/ffc/<config name>/`: one `runs-<job>r<restart>-<host>-<pid>.jsonl` per job process (plus a legacy `runs.jsonl`), and `runs.parquet` after `ffc report`.
+
+The analysis is light; run it on your own machine:
+
+```bash
+scp -P 22150 -r user_<login>@200.137.197.131:~/runs/ffc/grid results/
+uv run ffc analyze -c configs/grid.yaml --results-dir results/grid
+```
 
 ## Monitoring
 

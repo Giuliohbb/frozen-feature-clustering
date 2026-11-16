@@ -54,8 +54,12 @@ make smoke       # small end-to-end run: CIFAR-10, pixels + DINOv2, 3k images, 1
 
 make extract     # download datasets, cache features for all encoders (GPU)
 make run         # run the full grid on cached features (resumable)
-uv run ffc report -c configs/grid.yaml   # export runs.parquet and print a summary
+uv run ffc report -c configs/grid.yaml    # integrity check + quick summary table
+uv run ffc analyze -c configs/grid.yaml   # analyses A1-A3, figures -> reports/grid/summary.md
 ```
+
+`ffc analyze` refuses to report on an incomplete grid (missing or failed runs) unless
+`--allow-incomplete` is passed, in which case the report is marked provisional.
 
 Running on a Slurm cluster? See [`cluster/lab150/README.md`](cluster/lab150/README.md) for job scripts that run inside a PyTorch container with an isolated venv.
 
@@ -72,7 +76,7 @@ images ──► encoder (frozen) ──► cache/<source>/features_<encoder>.np
 ```
 
 - **Two stages, two dependency sets.** Feature extraction needs torch and a GPU; everything after it reads `.npy` files and runs on CPU with scikit-learn and umap-learn. CI tests the second stage end to end on synthetic features.
-- **Resumable.** Every run appends one JSON line with its id, metrics, timings and library versions. Re-running skips finished ids, so the grid survives interruptions and can be extended (new seeds, new methods) without recomputation.
+- **Resumable and crash-safe.** Every run appends one JSON line (id, metrics, timings, library versions, and the Slurm job, host and process that wrote it) to a file owned by that process. Re-running skips finished ids, so the grid survives interruptions and can be extended without recomputation. A failing cell is recorded as an error instead of stopping the grid, and the reader tolerates torn lines and duplicate writers (both happened on the cluster).
 - **Config-driven.** The whole grid is a YAML file ([`configs/grid.yaml`](configs/grid.yaml)). Adding an encoder, reducer or clusterer means registering one function.
 
 ## Repository layout
@@ -90,7 +94,11 @@ src/ffc/
   cluster.py        k-means | GMM | Ward | HDBSCAN
   metrics.py        external and internal metrics
   runner.py         resumable grid execution
-  cli.py            `ffc extract | run | report`
+  results.py        result files, deduplication, integrity report
+  analysis.py       A1 variance decomposition, A2 internal vs external, A3 reducer effect
+  figures.py        report figures
+  report.py         `ffc analyze`: tables, figures, Markdown summary
+  cli.py            `ffc extract | run | report | analyze`
 tests/              unit and end-to-end tests (CPU, synthetic data)
 ```
 
@@ -104,9 +112,10 @@ tests/              unit and end-to-end tests (CPU, synthetic data)
 ## Roadmap
 
 - [x] Pipeline, configuration grid, metrics, tests and CI
-- [ ] Feature extraction for all encoders (RTX 4090)
-- [ ] Full grid (1,280 runs)
-- [ ] Analyses A1–A4 and figures
+- [x] Feature extraction for all encoders (RTX 4090)
+- [ ] Full grid (1,280 runs), running
+- [x] Analyses A1–A3 and figures (`ffc analyze`), tested on a synthetic grid
+- [ ] Analysis of the real grid
 - [ ] Paper-style write-up and presentation
 
 ## Key references

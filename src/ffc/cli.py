@@ -15,6 +15,10 @@ ConfigOpt = typer.Option(..., "--config", "-c", exists=True, help="Path to exper
 DataDirOpt = typer.Option(None, help="Override paths.data_dir (raw datasets)")
 CacheDirOpt = typer.Option(None, help="Override paths.cache_dir (features and labels)")
 ResultsDirOpt = typer.Option(None, help="Override paths.results_dir (result files)")
+ReportDirOpt = typer.Option(None, help="Report folder (default: reports/<config name>)")
+AllowIncompleteOpt = typer.Option(
+    False, help="Write a provisional report even if runs are missing or failed"
+)
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -95,6 +99,28 @@ def report(
     df.to_parquet(out, index=False)
     typer.echo(f"{len(df)} runs -> {out}\n")
     typer.echo(summarize(df, metric=metric, by=("encoder", "reducer")).to_string())
+
+
+@app.command()
+def analyze(
+    config: Path = ConfigOpt,
+    results_dir: Path | None = ResultsDirOpt,
+    out: Path | None = ReportDirOpt,
+    allow_incomplete: bool = AllowIncompleteOpt,
+    verbose: bool = False,
+) -> None:
+    """Integrity check, analyses A1-A3, figures and a Markdown summary."""
+    from ffc.report import run_analysis
+
+    _setup_logging(verbose)
+    cfg = _load(config, results_dir=results_dir)
+    out_dir = out or Path("reports") / config.stem
+    try:
+        summary = run_analysis(cfg, out_dir, allow_incomplete=allow_incomplete)
+    except RuntimeError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(code=1) from err
+    typer.echo(f"Report written to {summary}")
 
 
 if __name__ == "__main__":

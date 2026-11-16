@@ -2,12 +2,17 @@
 
 Results are appended to ``<results_dir>/runs.jsonl``, one JSON object per run, flushed
 immediately. Re-running skips run ids already present, so an interrupted grid resumes.
+
+A run that raises is recorded with ``status="error"`` (metrics NaN) and the grid continues:
+one failing cell is a result to report, not a reason to lose the rest of the job. Errored
+runs are skipped on resume unless ``retry_errors=True``.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import platform
 import time
 from collections.abc import Iterable
@@ -45,18 +50,37 @@ def subsample_indices(n: int, max_samples: int | None, seed: int = 0) -> np.ndar
     return np.sort(rng.permutation(n)[:max_samples])
 
 
-def read_done(results_dir: Path) -> set[str]:
+METRIC_KEYS = (
+    "n_clusters_found", "coverage", "ari", "nmi", "acc",
+    "silhouette", "davies_bouldin", "calinski_harabasz",
+)  # fmt: skip
+
+
+def _read_records(results_dir: str | Path) -> list[dict[str, Any]]:
     path = Path(results_dir) / RUNS_FILE
     if not path.exists():
-        return set()
+        return []
     with open(path) as f:
-        return {json.loads(line)["run_id"] for line in f if line.strip()}
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def read_done(results_dir: str | Path, include_errors: bool = True) -> set[str]:
+    """Run ids already recorded. The latest record of a run id wins."""
+    latest = {r["run_id"]: r for r in _read_records(results_dir)}
+    return {
+        run_id for run_id, r in latest.items() if include_errors or r.get("status", "ok") != "error"
+    }
 
 
 def load_results(results_dir: str | Path) -> pd.DataFrame:
-    path = Path(results_dir) / RUNS_FILE
-    with open(path) as f:
-        return pd.DataFrame([json.loads(line) for line in f if line.strip()])
+    """All runs, one row per run id (latest record wins, so a retried run replaces its error)."""
+    df = pd.DataFrame(_read_records(results_dir))
+    if df.empty:
+        return df
+    if "status" not in df:
+        df["status"] = "ok"
+    df["status"] = df["status"].fillna("ok")  # records written before the status field existed
+    return df.drop_duplicates("run_id", keep="last").reset_index(drop=True)
 
 
 def _environment() -> dict[str, str]:
@@ -70,12 +94,12 @@ def _environment() -> dict[str, str]:
     }
 
 
-def run_grid(cfg: ExperimentConfig) -> int:
+def run_grid(cfg: ExperimentConfig, retry_errors: bool = False) -> int:
     """Execute all pending runs of the grid. Returns the number of runs executed."""
     store = FeatureStore(cfg.paths.cache_dir)
     results_dir = Path(cfg.paths.results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
-    done = read_done(results_dir)
+    done = read_done(results_dir, include_errors=not retry_errors)
     pending = {r.run_id for r in cfg.iter_runs()} - done
     log.info("%d runs in grid, %d already done, %d pending", cfg.n_runs(), len(done), len(pending))
     if not pending:
@@ -128,6 +152,9 @@ def run_grid(cfg: ExperimentConfig) -> int:
                             out.write(json.dumps(record) + "\n")
                             out.flush()
                             n_executed += 1
+                            if record["status"] == "error":
+                                log.warning("  %-28s FAILED: %s", run.clusterer.id, record["error"])
+                                continue
                             log.info(
                                 "  %-28s ARI=%.3f NMI=%.3f ACC=%.3f (%.1fs)",
                                 run.clusterer.id, record["ari"], record["nmi"], record["acc"],
@@ -140,10 +167,6 @@ def _evaluate_run(
     run: RunSpec, X_red: np.ndarray, y_true: np.ndarray, cfg: ExperimentConfig
 ) -> dict[str, Any]:
     k = DATASETS[run.dataset].n_classes
-    t0 = time.perf_counter()
-    y_pred = cluster(X_red, run.clusterer, n_clusters=k, seed=run.seed)
-    t_cluster = time.perf_counter() - t0
-
     record: dict[str, Any] = {
         "run_id": run.run_id,
         "dataset": run.dataset,
@@ -152,18 +175,29 @@ def _evaluate_run(
         "clusterer": run.clusterer.id,
         "seed": run.seed,
         "k_true": k,
-        "time_cluster_s": t_cluster,
-        "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
     }
-    record.update(partition_stats(y_pred))
-    record.update(external_metrics(y_true, y_pred))
-    record.update(internal_metrics(X_red, y_pred, cfg.internal_metrics_sample, run.seed))
+    t0 = time.perf_counter()
+    try:
+        result = cluster(X_red, run.clusterer, n_clusters=k, seed=run.seed)
+        record["time_cluster_s"] = time.perf_counter() - t0
+        record.update(result.info)
+        record.update(partition_stats(result.labels))
+        record.update(external_metrics(y_true, result.labels))
+        record.update(internal_metrics(X_red, result.labels, cfg.internal_metrics_sample, run.seed))
+        record["status"] = "ok"
+    except Exception as err:  # one failing cell must not kill the whole grid
+        record["time_cluster_s"] = time.perf_counter() - t0
+        record.update(dict.fromkeys(METRIC_KEYS, math.nan))
+        record["status"] = "error"
+        record["error"] = f"{type(err).__name__}: {err}"[:500]
+    record["timestamp"] = datetime.now(UTC).isoformat(timespec="seconds")
     return record
 
 
 def summarize(
     df: pd.DataFrame, metric: str = "ari", by: Iterable[str] = ("encoder",)
 ) -> pd.DataFrame:
-    """Mean and std of a metric over seeds, pivoted for a quick look in the terminal."""
+    """Mean of a metric over seeds (successful runs only), pivoted for the terminal."""
     cols = ["dataset", *by]
-    return df.groupby([*cols, "clusterer"])[metric].mean().unstack("clusterer").round(3)
+    ok = df[df["status"] == "ok"] if "status" in df else df
+    return ok.groupby([*cols, "clusterer"])[metric].mean().unstack("clusterer").round(3)

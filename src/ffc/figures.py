@@ -57,7 +57,9 @@ def _save(fig: plt.Figure, path: Path) -> Path:
     return path
 
 
-def variance_figure(var: pd.DataFrame, path: Path) -> Path:
+def variance_figure(
+    var: pd.DataFrame, path: Path, title: str = "A1 · What drives clustering quality"
+) -> Path:
     """A1: share of ARI variance per component, one panel per dataset."""
     order = var.groupby("component")["eta2"].mean().sort_values().index.tolist()
     datasets = sorted(var["dataset"].unique())
@@ -78,7 +80,7 @@ def variance_figure(var: pd.DataFrame, path: Path) -> Path:
         ax.set_title(dataset, fontsize=9, color=TEXT)
         _style(ax)
     axes[0].set_xlabel("share of ARI variance (η²)", fontsize=8)
-    _title(fig, "A1 · What drives clustering quality")
+    _title(fig, title)
     return _save(fig, path)
 
 
@@ -91,7 +93,7 @@ def heatmap_figure(cells: pd.DataFrame, path: Path) -> Path:
     fig, axes = plt.subplots(
         len(datasets), len(clusterers),
         figsize=(2.3 * len(clusterers) + 1.2, 1.9 * len(datasets) + 0.6),
-        squeeze=False,
+        squeeze=False, layout="constrained",
     )  # fmt: skip
     im = None
     for i, dataset in enumerate(datasets):
@@ -117,11 +119,11 @@ def heatmap_figure(cells: pd.DataFrame, path: Path) -> Path:
             if j == 0:
                 ax.set_ylabel(dataset, fontsize=8, color=TEXT)
     if im is not None:
-        cbar = fig.colorbar(im, ax=axes, shrink=0.6, pad=0.02)
+        cbar = fig.colorbar(im, ax=axes, shrink=0.6)
         cbar.set_label("mean ARI over seeds", fontsize=8, color=TEXT)
         cbar.ax.tick_params(labelsize=7, colors=TEXT_2)
         cbar.outline.set_visible(False)
-    fig.suptitle("Mean ARI per configuration", fontsize=10, color=TEXT, x=0.01, y=0.99, ha="left")
+    fig.suptitle("Mean ARI per configuration", fontsize=10, color=TEXT, x=0.01, ha="left")
     return _save(fig, path)
 
 

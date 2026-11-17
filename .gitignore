@@ -13,11 +13,12 @@ dist/
 .coverage
 htmlcov/
 
-# Data, features and run outputs are never versioned
+# Data, features and run outputs are never versioned (the frozen tables and figures
+# in docs/results/ are the exception: they back the published results)
 data/
 cache/
-results/
-reports/
+/results/
+/reports/
 outputs/
 
 # Notebooks

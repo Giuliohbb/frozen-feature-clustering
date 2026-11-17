@@ -20,6 +20,24 @@ from scipy import stats
 
 FACTORS = ("encoder", "reducer", "clusterer")
 
+# Sensitivity subsets. Raw pixels sit near ARI 0 everywhere and HDBSCAN collapses without
+# UMAP; both inflate their own factor's share, so headline numbers are re-checked without them.
+SUBSETS: dict[str, tuple[tuple[str, str], ...]] = {
+    "all": (),
+    "no pixels": (("encoder", "pixels"),),
+    "no pixels, no HDBSCAN": (("encoder", "pixels"), ("clusterer", "hdbscan")),
+    "no HDBSCAN": (("clusterer", "hdbscan"),),
+}
+
+
+def subset(df: pd.DataFrame, name: str) -> pd.DataFrame:
+    """Rows of ``df`` that survive the exclusions of sensitivity subset ``name``."""
+    mask = pd.Series(True, index=df.index)
+    for column, value in SUBSETS[name]:
+        mask &= df[column] != value
+    return df[mask]
+
+
 # Internal metrics and their direction: +1 = higher is better, -1 = lower is better.
 INTERNAL_METRICS: dict[str, int] = {
     "silhouette": +1,
@@ -229,3 +247,14 @@ def compare_reducer_gain(
         "n_pairs": len(diff),
         "wilcoxon_p": p,
     }
+
+
+def hdbscan_coverage(runs: pd.DataFrame) -> pd.DataFrame:
+    """HDBSCAN labels low-density points as noise. ARI counts noise as one extra group and
+    internal metrics ignore it, so both must be read next to the fraction of points kept."""
+    h = runs[runs["clusterer"] == "hdbscan"]
+    return (
+        h.groupby(["reducer", "encoder"])[["coverage", "n_clusters_found", "ari"]]
+        .mean()
+        .reset_index()
+    )

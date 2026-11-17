@@ -6,7 +6,7 @@
 
 **Representation, dimensionality reduction or algorithm? What drives clustering quality on frozen pretrained features, and can we pick a good configuration without labels?**
 
-> **Status: work in progress.** Final project for *Unsupervised Machine Learning* at the Universidade Federal de Goiás (UFG), Nov–Dec 2026. The pipeline, metrics and tests are in place; experiments and analysis are under way (see [Roadmap](#roadmap)).
+> **Status:** the full grid has been run and analysed ([results](docs/results.md)); the paper-style write-up is in progress. Final project for *Unsupervised Machine Learning* at the Universidade Federal de Goiás (UFG), Nov–Dec 2026.
 
 ## Motivation
 
@@ -34,9 +34,30 @@ A full factorial grid, **1,280 runs** in total:
 
 **Metrics.** External: ARI (primary, chance-corrected), NMI, Hungarian accuracy. Internal: Silhouette, Davies-Bouldin, Calinski-Harabasz, computed in the space where clustering ran. For HDBSCAN, noise is its own group in external metrics and coverage is reported separately.
 
-**Planned analyses.** (A1) ANOVA of ARI with η² per factor; (A2) Kendall's τ between internal and external rankings, plus the *regret* of choosing by an internal metric; (A3) UMAP effect per algorithm and across seeds; (A4) qualitative failure analysis.
+**Analyses.**
+- (A1) Share of ARI variance (η²) per factor and interaction, from a sum-of-squares decomposition of the factorial.
+- (A2) Kendall's τ between internal and external rankings, plus the *regret* of choosing by an internal metric.
+- (A3) ARI change from each reduction per algorithm, with a paired Wilcoxon test (HDBSCAN vs k-means).
+
+Each analysis is repeated without the extreme levels (raw pixels, HDBSCAN) as a sensitivity check.
 
 The full proposal (in Portuguese) is in [`docs/proposal-pt.md`](docs/proposal-pt.md).
+
+## Results
+
+Full write-up with tables and figures: **[`docs/results.md`](docs/results.md)**.
+
+![Mean ARI for every configuration](docs/results/figures/fig_ari_heatmaps.png)
+
+- **RQ1, supported with a caveat.** The representation explains 56–68% of ARI variance, against 12–25% for the algorithm and 3–7% for the reduction. Without raw pixels and HDBSCAN, the algorithm drops to ≤ 3%. On STL-10, where all pretrained models are already good, the reduction (39%) explains more than the representation (24%).
+- **RQ2, not supported as stated.** Among k-means, GMM and Ward, every internal metric picks a configuration within 0.07 ARI of the best, versus 0.21–0.37 for a blind pick, *across* representations too. The real failure mode is HDBSCAN: internal metrics ignore its noise points and often prefer it, losing up to 0.30 ARI.
+- **RQ3, supported.** UMAP raises HDBSCAN's ARI by +0.27 on average, against +0.05 for k-means. HDBSCAN gains more in 15/16 (UMAP15) and 16/16 (UMAP50) dataset × representation pairs (Wilcoxon p ≤ 2 × 10⁻⁴). PCA to 50 dimensions helps no algorithm.
+
+Best mean ARI per dataset: CIFAR-10 0.90, CIFAR-100 (20) 0.49, CIFAR-100 (100) 0.65, STL-10 0.96, all with DINOv2 + UMAP. The frozen results table ([`docs/results/grid_runs.parquet`](docs/results/grid_runs.parquet)) reproduces every number:
+
+```bash
+uv run ffc analyze -c configs/grid.yaml --runs docs/results/grid_runs.parquet
+```
 
 ## Quickstart
 
@@ -84,7 +105,7 @@ images ──► encoder (frozen) ──► cache/<source>/features_<encoder>.np
 ```
 cluster/lab150/     Slurm job scripts for the UFG/CEIA LAB150 cluster
 configs/            experiment grids (full and smoke)
-docs/               proposal and, later, the paper-style write-up
+docs/               proposal, results write-up, frozen results table and figures
 src/ffc/
   config.py         YAML loading and grid expansion
   data.py           dataset registry and loaders (test splits)
@@ -107,15 +128,15 @@ tests/              unit and end-to-end tests (CPU, synthetic data)
 - Fixed seeds for every stochastic step (PCA solver, UMAP, k-means, GMM). Seeded UMAP runs single-threaded by design.
 - Official test splits only; labels never touch the clustering stage.
 - Library versions are recorded in every result row; dependencies are locked in `uv.lock`.
-- Datasets, features and results are never committed (see `.gitignore`).
+- Datasets, features and raw result files are never committed (see `.gitignore`). The deduplicated results table behind the published numbers is: [`docs/results/grid_runs.parquet`](docs/results/grid_runs.parquet).
 
 ## Roadmap
 
 - [x] Pipeline, configuration grid, metrics, tests and CI
 - [x] Feature extraction for all encoders (RTX 4090)
-- [ ] Full grid (1,280 runs), running
-- [x] Analyses A1–A3 and figures (`ffc analyze`), tested on a synthetic grid
-- [ ] Analysis of the real grid
+- [x] Full grid (1,280 runs) on the LAB150 cluster
+- [x] Analyses A1–A3 and figures (`ffc analyze`), with sensitivity checks
+- [x] Analysis of the real grid ([results](docs/results.md))
 - [ ] Paper-style write-up and presentation
 
 ## Key references

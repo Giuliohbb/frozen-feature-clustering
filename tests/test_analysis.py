@@ -84,7 +84,14 @@ def test_run_analysis_writes_report(tmp_path: Path) -> None:
     for fig in ("fig_a1_variance.png", "fig_ari_heatmaps.png",
                 "fig_a2_silhouette_vs_ari.png", "fig_a3_reducer_effect.png"):  # fmt: skip
         assert (tmp_path / "report" / fig).stat().st_size > 10_000
-    assert np.isclose(pd.read_csv(tmp_path / "report" / "a1_variance.csv")["eta2"].sum(), 2.0)
+    var = pd.read_csv(tmp_path / "report" / "a1_variance.csv")
+    assert set(var["subset"]) == {"all", "no pixels", "no pixels, no HDBSCAN"}
+    sums = var.groupby(["subset", "dataset"])["eta2"].sum()
+    assert np.allclose(sums, 1.0)  # shares sum to one within every subset and dataset
+    assert (tmp_path / "report" / "fig_a1_variance_no_pixels_no_hdbscan.png").exists()
+    a2 = pd.read_csv(tmp_path / "report" / "a2_summary.csv")
+    assert set(a2["subset"]) == {"all", "no HDBSCAN"}
+    assert (tmp_path / "report" / "a3_hdbscan_coverage.csv").exists()
 
 
 def test_run_analysis_refuses_incomplete_grid_unless_allowed(tmp_path: Path) -> None:
@@ -93,3 +100,22 @@ def test_run_analysis_refuses_incomplete_grid_unless_allowed(tmp_path: Path) -> 
         run_analysis(cfg, tmp_path / "report")
     summary = run_analysis(cfg, tmp_path / "report", allow_incomplete=True)
     assert "Provisional" in summary.read_text()
+
+
+def test_subsets_drop_the_extreme_levels(runs: pd.DataFrame) -> None:
+    assert "pixels" not in set(an.subset(runs, "no pixels")["encoder"])
+    core = an.subset(runs, "no pixels, no HDBSCAN")
+    assert "pixels" not in set(core["encoder"]) and "hdbscan" not in set(core["clusterer"])
+    assert len(an.subset(runs, "all")) == len(runs)
+
+
+def test_analysis_from_frozen_parquet(tmp_path: Path) -> None:
+    """The committed Parquet export must reproduce the report without the raw files."""
+    from ffc.results import load_results
+
+    cfg = write_grid(tmp_path / "res")
+    frozen = tmp_path / "grid_runs.parquet"
+    load_results(tmp_path / "res").to_parquet(frozen, index=False)
+    summary = run_analysis(cfg, tmp_path / "report", runs_path=frozen)
+    text = summary.read_text()
+    assert str(frozen) in text and "216/216 runs" in text

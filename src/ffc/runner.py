@@ -1,7 +1,8 @@
 """Grid execution: reduce once per (source, encoder, reducer, seed), then cluster and evaluate.
 
-Results are appended to ``<results_dir>/runs.jsonl``, one JSON object per run, flushed
-immediately. Re-running skips run ids already present, so an interrupted grid resumes.
+Results are appended to a per-process JSONL file in ``<results_dir>`` (see ``ffc.results``),
+one JSON object per run, flushed immediately. Re-running skips run ids already recorded, so an
+interrupted grid resumes.
 
 A run that raises is recorded with ``status="error"`` (metrics NaN) and the grid continues:
 one failing cell is a result to report, not a reason to lose the rest of the job. Errored
@@ -30,11 +31,18 @@ from ffc.config import ExperimentConfig, RunSpec
 from ffc.data import DATASETS
 from ffc.metrics import external_metrics, internal_metrics, partition_stats
 from ffc.reduce import reduce
+from ffc.results import (
+    ensure_trailing_newline,
+    load_results,
+    provenance,
+    read_done,
+    writer_path,
+)
 from ffc.store import FeatureStore
 
-log = logging.getLogger(__name__)
+__all__ = ["load_results", "read_done", "run_grid", "summarize"]
 
-RUNS_FILE = "runs.jsonl"
+log = logging.getLogger(__name__)
 
 
 def l2_normalize(X: np.ndarray, eps: float = 1e-12) -> np.ndarray:
@@ -54,64 +62,6 @@ METRIC_KEYS = (
     "n_clusters_found", "coverage", "ari", "nmi", "acc",
     "silhouette", "davies_bouldin", "calinski_harabasz",
 )  # fmt: skip
-
-
-def _read_records(results_dir: str | Path) -> list[dict[str, Any]]:
-    """Parse runs.jsonl, tolerating lines damaged by an interrupted write.
-
-    On a network filesystem, a job killed mid-write can leave a torn line or NUL padding
-    (sometimes followed by the next record on the same line). NULs are stripped so such a
-    record is recovered; anything still unparsable is skipped with a warning, which simply
-    makes that run pending again.
-    """
-    path = Path(results_dir) / RUNS_FILE
-    if not path.exists():
-        return []
-    records: list[dict[str, Any]] = []
-    with open(path, encoding="utf-8", errors="replace") as f:
-        for lineno, raw in enumerate(f, start=1):
-            line = raw.replace("\x00", "").strip()
-            if not line:
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                log.warning("%s:%d is not valid JSON, skipping: %r", path, lineno, line[:80])
-                continue
-            if isinstance(record, dict) and "run_id" in record:
-                records.append(record)
-            else:
-                log.warning("%s:%d has no run_id, skipping", path, lineno)
-    return records
-
-
-def _ensure_trailing_newline(path: Path) -> None:
-    """If a previous job died mid-line, start appending on a fresh line."""
-    if not path.exists() or path.stat().st_size == 0:
-        return
-    with open(path, "rb+") as f:
-        f.seek(-1, 2)
-        if f.read(1) != b"\n":
-            f.write(b"\n")
-
-
-def read_done(results_dir: str | Path, include_errors: bool = True) -> set[str]:
-    """Run ids already recorded. The latest record of a run id wins."""
-    latest = {r["run_id"]: r for r in _read_records(results_dir)}
-    return {
-        run_id for run_id, r in latest.items() if include_errors or r.get("status", "ok") != "error"
-    }
-
-
-def load_results(results_dir: str | Path) -> pd.DataFrame:
-    """All runs, one row per run id (latest record wins, so a retried run replaces its error)."""
-    df = pd.DataFrame(_read_records(results_dir))
-    if df.empty:
-        return df
-    if "status" not in df:
-        df["status"] = "ok"
-    df["status"] = df["status"].fillna("ok")  # records written before the status field existed
-    return df.drop_duplicates("run_id", keep="last").reset_index(drop=True)
 
 
 def _environment() -> dict[str, str]:
@@ -136,10 +86,12 @@ def run_grid(cfg: ExperimentConfig, retry_errors: bool = False) -> int:
     if not pending:
         return 0
 
-    env = _environment()
+    env = {**_environment(), **provenance()}
     n_executed = 0
-    _ensure_trailing_newline(results_dir / RUNS_FILE)
-    with open(results_dir / RUNS_FILE, "a") as out:
+    out_path = writer_path(results_dir)
+    ensure_trailing_newline(out_path)  # same process calling run_grid again
+    log.info("writing results to %s", out_path)
+    with open(out_path, "a") as out:
         for source in cfg.sources:
             datasets = [d for d in cfg.datasets if DATASETS[d].source == source]
             for encoder in cfg.encoders:

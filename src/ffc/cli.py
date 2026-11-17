@@ -14,7 +14,11 @@ app = typer.Typer(add_completion=False, no_args_is_help=True, help=__doc__)
 ConfigOpt = typer.Option(..., "--config", "-c", exists=True, help="Path to experiment YAML")
 DataDirOpt = typer.Option(None, help="Override paths.data_dir (raw datasets)")
 CacheDirOpt = typer.Option(None, help="Override paths.cache_dir (features and labels)")
-ResultsDirOpt = typer.Option(None, help="Override paths.results_dir (runs.jsonl)")
+ResultsDirOpt = typer.Option(None, help="Override paths.results_dir (result files)")
+ReportDirOpt = typer.Option(None, help="Report folder (default: reports/<config name>)")
+AllowIncompleteOpt = typer.Option(
+    False, help="Write a provisional report even if runs are missing or failed"
+)
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -79,17 +83,44 @@ def report(
     results_dir: Path | None = ResultsDirOpt,
     metric: str = typer.Option("ari", help="Metric to summarize"),
 ) -> None:
-    """Export results to Parquet and print a summary table (mean over seeds)."""
-    from ffc.runner import load_results, summarize
+    """Check grid integrity, export results to Parquet and print a summary table."""
+    from ffc.results import integrity_report, load_results
+    from ffc.runner import summarize
 
     cfg = _load(config, results_dir=results_dir)
+    rep = integrity_report(cfg.paths.results_dir, (r.run_id for r in cfg.iter_runs()))
+    typer.echo(
+        f"Integrity: {rep['n_unique']}/{rep['n_expected']} runs, {rep['n_missing']} missing, "
+        f"{rep['n_errors']} errors, {rep['n_duplicate_records']} duplicate records, "
+        f"{rep['n_corrupt_lines']} corrupt lines, {rep['n_files']} files"
+    )
     df = load_results(cfg.paths.results_dir)
     out = Path(cfg.paths.results_dir) / "runs.parquet"
     df.to_parquet(out, index=False)
-    n_err = int((df["status"] == "error").sum())
-    typer.echo(f"{len(df)} runs ({n_err} with status=error) -> {out}\n")
-    with_reducer = summarize(df, metric=metric, by=("encoder", "reducer"))
-    typer.echo(with_reducer.to_string())
+    typer.echo(f"{len(df)} runs -> {out}\n")
+    typer.echo(summarize(df, metric=metric, by=("encoder", "reducer")).to_string())
+
+
+@app.command()
+def analyze(
+    config: Path = ConfigOpt,
+    results_dir: Path | None = ResultsDirOpt,
+    out: Path | None = ReportDirOpt,
+    allow_incomplete: bool = AllowIncompleteOpt,
+    verbose: bool = False,
+) -> None:
+    """Integrity check, analyses A1-A3, figures and a Markdown summary."""
+    from ffc.report import run_analysis
+
+    _setup_logging(verbose)
+    cfg = _load(config, results_dir=results_dir)
+    out_dir = out or Path("reports") / config.stem
+    try:
+        summary = run_analysis(cfg, out_dir, allow_incomplete=allow_incomplete)
+    except RuntimeError as err:
+        typer.echo(str(err), err=True)
+        raise typer.Exit(code=1) from err
+    typer.echo(f"Report written to {summary}")
 
 
 if __name__ == "__main__":

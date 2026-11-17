@@ -120,7 +120,7 @@ def test_grid_resumes_after_a_torn_last_line(tmp_path: Path) -> None:
     _make_cache(tmp_path / "cache")
     cfg = _config(tmp_path, seeds=[0])
     assert run_grid(cfg) == 8
-    runs = cfg.paths.results_dir / "runs.jsonl"
+    (runs,) = cfg.paths.results_dir.glob("runs-*.jsonl")
     lines = runs.read_text().splitlines()
     runs.write_text("\n".join(lines[:-1]) + "\n" + lines[-1][:30])  # tear the last record
     assert run_grid(cfg) == 1  # only the torn cell is re-run

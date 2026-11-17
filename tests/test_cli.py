@@ -40,4 +40,32 @@ def test_run_and_report_commands(tmp_path: Path) -> None:
     other = tmp_path / "elsewhere"
     result = runner.invoke(app, ["run", "--config", str(config_path), "--results-dir", str(other)])
     assert result.exit_code == 0, result.output
-    assert (other / "runs.jsonl").exists()
+    assert list(other.glob("runs-*.jsonl"))
+
+
+def test_analyze_command(tmp_path: Path) -> None:
+    from synthetic import grid_config, write_grid
+
+    write_grid(tmp_path / "res", drop=3)
+    cfg = grid_config(tmp_path / "res")
+    config = {
+        "datasets": cfg.datasets,
+        "encoders": cfg.encoders,
+        "reducers": [{"name": r.name, **r.kwargs} for r in cfg.reducers],
+        "clusterers": [{"name": c.name, **c.kwargs} for c in cfg.clusterers],
+        "seeds": cfg.seeds,
+        "paths": {"results_dir": str(tmp_path / "res")},
+    }
+    config_path = tmp_path / "grid.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    runner = CliRunner()
+
+    out = tmp_path / "report"
+    result = runner.invoke(app, ["analyze", "-c", str(config_path), "--out", str(out)])
+    assert result.exit_code == 1 and "Grid incomplete: 3 missing" in result.output
+
+    result = runner.invoke(
+        app, ["analyze", "-c", str(config_path), "--out", str(out), "--allow-incomplete"]
+    )
+    assert result.exit_code == 0, result.output
+    assert (out / "summary.md").exists()

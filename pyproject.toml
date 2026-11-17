@@ -15,6 +15,7 @@ dependencies = [
     "pyarrow>=15",
     "pyyaml>=6.0",
     "typer>=0.12",
+    "matplotlib>=3.8",
 ]
 
 [project.optional-dependencies]
@@ -58,8 +59,14 @@ src = ["src", "tests"]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "NPY"]
 ignore = ["N803", "N806"]  # allow X, X_red etc. (ML naming convention)
 
+[tool.ruff.lint.per-file-ignores]
+# typographic symbols (×, −, Δ, η²) are intended in figure and report text
+"src/ffc/figures.py" = ["RUF001"]
+"src/ffc/report.py" = ["RUF001"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["tests"]
 addopts = "-q --strict-markers"
 markers = ["slow: tests that take more than a few seconds"]
 

@@ -16,6 +16,9 @@ DataDirOpt = typer.Option(None, help="Override paths.data_dir (raw datasets)")
 CacheDirOpt = typer.Option(None, help="Override paths.cache_dir (features and labels)")
 ResultsDirOpt = typer.Option(None, help="Override paths.results_dir (result files)")
 ReportDirOpt = typer.Option(None, help="Report folder (default: reports/<config name>)")
+RunsOpt = typer.Option(
+    None, help="Analyze a frozen Parquet export (e.g. docs/results/grid_runs.parquet)"
+)
 AllowIncompleteOpt = typer.Option(
     False, help="Write a provisional report even if runs are missing or failed"
 )
@@ -106,6 +109,7 @@ def analyze(
     config: Path = ConfigOpt,
     results_dir: Path | None = ResultsDirOpt,
     out: Path | None = ReportDirOpt,
+    runs: Path | None = RunsOpt,
     allow_incomplete: bool = AllowIncompleteOpt,
     verbose: bool = False,
 ) -> None:
@@ -116,7 +120,7 @@ def analyze(
     cfg = _load(config, results_dir=results_dir)
     out_dir = out or Path("reports") / config.stem
     try:
-        summary = run_analysis(cfg, out_dir, allow_incomplete=allow_incomplete)
+        summary = run_analysis(cfg, out_dir, allow_incomplete=allow_incomplete, runs_path=runs)
     except RuntimeError as err:
         typer.echo(str(err), err=True)
         raise typer.Exit(code=1) from err

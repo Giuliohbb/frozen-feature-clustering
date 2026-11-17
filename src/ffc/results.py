@@ -80,11 +80,39 @@ class ReadStats:
     n_skipped: int = 0  # lines that could not be parsed (torn writes, garbage)
 
 
+class _DuplicateKeyError(ValueError):
+    pass
+
+
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    keys = [k for k, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise _DuplicateKeyError(sorted({k for k in keys if keys.count(k) > 1}))
+    return dict(pairs)
+
+
+_ID_FIELDS = ("dataset", "encoder", "reducer", "clusterer", "seed")
+
+
+def _run_id_consistent(record: dict[str, Any]) -> bool:
+    """A record's run id must spell out its own design fields (when they are present)."""
+    if not all(f in record for f in _ID_FIELDS):
+        return True
+    d = record
+    expected = f"{d['dataset']}|{d['encoder']}|{d['reducer']}|{d['clusterer']}|seed={d['seed']}"
+    return bool(record["run_id"] == expected)
+
+
 def _parse_file(path: Path, stats: ReadStats) -> list[dict[str, Any]]:
     """Parse one JSONL file, tolerating lines damaged by an interrupted or concurrent write.
 
     NUL padding is stripped, so a record that follows it is recovered. Anything still
     unparsable is skipped with a warning, which simply makes that run pending again.
+
+    Two interleaved writes can also splice the head of one record onto the tail of another
+    and still form valid JSON. A real writer never emits a key twice, while a splice repeats
+    the keys of the tail, so lines with duplicate keys (or whose run id disagrees with their
+    own design fields) are rejected as well.
     """
     records: list[dict[str, Any]] = []
     with open(path, encoding="utf-8", errors="replace") as f:
@@ -93,13 +121,21 @@ def _parse_file(path: Path, stats: ReadStats) -> list[dict[str, Any]]:
             if not line:
                 continue
             try:
-                record = json.loads(line)
+                record = json.loads(line, object_pairs_hook=_no_duplicate_keys)
             except json.JSONDecodeError:
                 log.warning("%s:%d is not valid JSON, skipping: %r", path, lineno, line[:80])
                 stats.n_skipped += 1
                 continue
+            except _DuplicateKeyError as e:
+                log.warning("%s:%d repeats keys %s (spliced write), skipping", path, lineno, e)
+                stats.n_skipped += 1
+                continue
             if not isinstance(record, dict) or "run_id" not in record:
                 log.warning("%s:%d has no run_id, skipping", path, lineno)
+                stats.n_skipped += 1
+                continue
+            if not _run_id_consistent(record):
+                log.warning("%s:%d run id disagrees with its fields, skipping", path, lineno)
                 stats.n_skipped += 1
                 continue
             records.append(record)
@@ -165,4 +201,28 @@ def integrity_report(results_dir: str | Path, expected_run_ids: Iterable[str]) -
         "complete": not missing and not errors,
         "missing": missing[:20],
         "errors": [f"{rid}: {latest[rid].get('error', '')}" for rid in errors[:20]],
+    }
+
+
+def integrity_from_frame(df: pd.DataFrame, expected_run_ids: Iterable[str]) -> dict[str, Any]:
+    """Same report as ``integrity_report`` for an already deduplicated table (e.g. a frozen
+    Parquet export). File-level counts (corrupt lines, duplicates) are not recoverable here."""
+    expected = set(expected_run_ids)
+    present = set(df["run_id"])
+    status = df.set_index("run_id")["status"] if "status" in df else pd.Series(dtype=str)
+    missing = sorted(expected - present)
+    errors = sorted(rid for rid in expected & present if status.get(rid, "ok") == "error")
+    return {
+        "n_files": 0,
+        "n_records": len(df),
+        "n_corrupt_lines": 0,
+        "n_duplicate_records": int(df["run_id"].duplicated().sum()),
+        "n_expected": len(expected),
+        "n_unique": len(present),
+        "n_missing": len(missing),
+        "n_unexpected": len(present - expected),
+        "n_errors": len(errors),
+        "complete": not missing and not errors,
+        "missing": missing[:20],
+        "errors": errors[:20],
     }

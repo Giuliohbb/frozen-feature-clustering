@@ -63,3 +63,36 @@ def test_integrity_report(tmp_path: Path) -> None:
     assert rep["n_corrupt_lines"] == 1
     assert rep["n_unexpected"] == 1
     assert rep["complete"] is False
+
+
+def _full(seed: int, reducer: str, ari: float, dim: int) -> str:
+    rid = f"cifar10|pixels|{reducer}|kmeans|seed={seed}"
+    return json.dumps(
+        {
+            "run_id": rid,
+            "dataset": "cifar10",
+            "encoder": "pixels",
+            "reducer": reducer,
+            "clusterer": "kmeans",
+            "seed": seed,
+            "timestamp": f"2026-11-13T0{seed}:00:00",
+            "ari": ari,
+            "dim_reduced": dim,
+            "status": "ok",
+        }
+    )
+
+
+def test_spliced_lines_are_rejected(tmp_path: Path) -> None:
+    """Job 332: the head of one record glued to the tail of another can still be valid JSON."""
+    a = _full(0, "pca50", 0.0, 50)
+    b = _full(1, "umap15", 0.9, 10)
+    # torn mid-key, like the real ``"mestamp"`` / ``"sklearn_veource"`` lines
+    spliced = a[: a.index('"timestamp"') + 1] + b[b.index('"encoder"') + 3 :]
+    assert json.loads(spliced)["run_id"] == json.loads(a)["run_id"]  # it does parse
+    # same design fields, but a run id from another record
+    mismatched = json.dumps({**json.loads(a), "run_id": json.loads(b)["run_id"]})
+    (tmp_path / "runs.jsonl").write_text("\n".join([spliced, mismatched, a, b]) + "\n")
+    records, stats = results.read_records(tmp_path)
+    assert stats.n_skipped == 2
+    assert [r["ari"] for r in records] == [0.0, 0.9]
